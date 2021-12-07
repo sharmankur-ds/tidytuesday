@@ -1,0 +1,215 @@
+---
+title: "REPORT DASHBOARD"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+
+## rmarkdown::render("2021_12_01_cricket_Analysis_flexDashboard.Rmd") 
+---
+
+ 
+-------------------------------------
+
+
+
+```{r setup, include=FALSE}
+
+library(flexdashboard)
+library(tidyverse)
+library(scales)
+library(plotly)
+
+theme_set(theme_light())
+
+tt_caption <- "Analysis: Ankur Sharma(Data Scientist)"
+
+```
+
+```{r}
+# Load the data manually
+
+matches <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-11-30/matches.csv')
+
+#glimpse(matches)
+```
+
+```{r}
+
+# FInd out matches at home vs matches away from home
+matches_at_home <- matches %>%
+  mutate( win_at_home = ifelse(team1==winner, "team1", "team2"))
+
+matches_at_home <- matches_at_home %>%
+  mutate(home_adv = ifelse(win_at_home=="team2" & team2_home_away=="home",1, 
+                           ifelse(win_at_home=="team1" & team1_away_or_home=="home", 1,0)))
+         
+
+```
+
+```{r}
+library(tidyr)
+
+bat_field <- matches %>% group_by(winner, toss_decision) %>%
+  summarize(count=n()) %>%
+  spread(toss_decision, count) %>%
+ rename(bat = "bat first", field="field first") %>%
+  na.omit() %>%
+  mutate(count = bat+field) %>%
+  arrange(desc(bat)) %>% head(9)
+
+
+```
+
+```{r}
+players <- matches %>% group_by(player_of_match, player_of_match_team) %>%
+  summarize(count=n()) %>%
+  arrange(desc(count)) %>%
+  rename(COUNTRY=player_of_match_team)
+
+
+```
+```{r}
+df <- read.csv("https://raw.githubusercontent.com/plotly/datasets/master/2014_world_gdp_with_codes.csv")
+
+```
+
+```{r}
+df_join <- df %>%
+  inner_join(players) %>%
+  group_by(COUNTRY, CODE) %>%
+  summarize(count=sum(count))
+
+
+```
+
+```{r}
+# Lets extract top 5 players from each country 
+
+players_ind <- players %>% filter(COUNTRY=="India") %>% arrange(desc(count)) %>% head(5)
+players_sa <- players %>% filter(COUNTRY=="South Africa") %>% arrange(desc(count)) %>% head(5)
+players_aus <- players %>% filter(COUNTRY=="Australia") %>% arrange(desc(count)) %>% head(5)
+players_sl <- players %>% filter(COUNTRY=="Sri Lanka") %>% arrange(desc(count)) %>% head(5)
+players_pak <- players %>% filter(COUNTRY=="Pakistan") %>% arrange(desc(count)) %>% head(5)
+players_nz <- players %>% filter(COUNTRY=="New Zeeland") %>% arrange(desc(count)) %>% head(5)
+players_wi <- players %>% filter(COUNTRY=="West Indies") %>% arrange(desc(count)) %>% head(5)
+players_eng <- players %>% filter(COUNTRY=="England") %>% arrange(desc(count)) %>% head(5)
+
+players_top <- players_ind %>% full_join(players_sa) %>% full_join(players_aus) %>% 
+  full_join(players_sl) %>% full_join(players_pak) %>% full_join(players_nz) %>%
+  full_join(players_wi) %>% full_join(players_eng)
+
+
+```
+
+Column {data-width=500}
+---------------------------------
+
+
+    
+### Map Showing the Countries with maximum wins
+    
+```{r}
+l <- list(color = toRGB("grey"), width = 0.5)
+
+# specify map projection/options
+g <- list(
+  showframe = FALSE,
+  showcoastlines = FALSE,
+  projection = list(type = 'Mercator')
+)
+
+p3 <- plot_geo(df_join)
+p3 <- p3 %>% add_trace(
+    z = ~count, color = ~count, 
+    text = ~COUNTRY, locations = ~CODE, marker = list(line = l)
+  )
+p3 <- p3 %>% colorbar(title = 'Number of Wins')
+p3 <- p3 %>% layout(
+    title = '1998 - 2003 CRICKET STATS<br>Source:<a href="https://www.espncricinfo.com/">ESPN CRICINFO</a>',
+    geo = g
+  )
+
+p3
+```
+   
+### Chart Showing Teams won when batted vs fielded
+    
+```{r}
+p2 <- bat_field %>%
+  mutate(winner = (fct_reorder(winner, desc(count)))) %>%
+  plot_ly(x=~winner, name='winners') %>%
+  add_bars(y = ~bat, name = 'Bat First') %>%
+  add_bars(y= ~field, name="Field First") %>% 
+  #add_markers(x=~winner, y=~count/2, name="average mark") %>%
+ #add_lines(x=~winner, y= ~count/2, name="average line") %>%
+  #add_markers(x=~winner,y=mean(count)) %>%
+layout(title = list(text = "No. of wins for top 10 countries (Bat vs Field)", yanchor = "top"),
+        #barmode = 'stack',
+        showlegend = TRUE, 
+        yaxis = list(title = 'Total Wins when Batted vs Fielded'),
+        xaxis = list(title = 'Countries'),
+         legend = list( x = .85, y = .95, size = 10)
+  
+        #plot_bgcolor = "#008080" ,
+        #paper_bgcolor = '#000080'
+       )
+
+p2
+```
+
+
+
+Column {data-width=500}
+-------------------------------------
+   
+### Is there any advantages to Home ground with their winning rate?
+
+```{r}
+p1 <- matches_at_home %>% group_by(winner) %>%
+  summarize(count=n(), home_wins = sum(home_adv), away_wins=count-home_wins, mean_count = count/2) %>%
+  filter(winner != "Match tied") %>%
+  top_n(10) %>%
+  mutate(winner = (fct_reorder(winner, desc(count)))) %>%
+  plot_ly(x=~winner, name='winners') %>%
+  add_bars(y = ~away_wins, name = 'win at away') %>%
+  add_bars(y= ~home_wins, name="win at home") %>% 
+  add_markers(x=~winner, y=~mean_count, name="average mark") %>%
+  add_lines(x=~winner, y= ~mean_count, name="average line") %>%
+  #add_markers(x=~winner,y=mean(count)) %>%
+layout(title = list(text = "No. of wins and home advantages by top 10 countries", yanchor = "top"),
+        barmode = 'stack',
+        showlegend = TRUE, 
+        yaxis = list(title = 'Total Wins at Home vs Wins at Away'),
+        xaxis = list(title = 'Countries'),
+         legend = list( x = .85, y = .95, size = 10)
+  
+        #plot_bgcolor = "#008080" ,
+        #paper_bgcolor = '#000080'
+       )
+
+p1
+```   
+
+
+
+### Highest Play of the Match by Countries
+    
+```{r}
+p4 <- players_top %>% mutate(player_of_match= (fct_reorder(player_of_match, desc(count)))) %>%
+plot_ly() %>%
+  add_trace( y=~count, x=~player_of_match, color=~COUNTRY, type="bar") %>%
+  layout(title = list(text = "Player of the Match by Top Countries", yanchor = "top"),
+        #barmode = 'stack',
+        showlegend = TRUE, 
+        yaxis = list(title = 'Total Win COunts'),
+        xaxis = list(title = 'Name of Player'),
+         legend = list( x = .85, y = .95, size = 10)
+        
+        #plot_bgcolor = "#008080" ,
+        #paper_bgcolor = '#000080'
+       )
+
+p4
+```
+
